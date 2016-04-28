@@ -1,0 +1,30 @@
+{
+  "name": "groupr",
+  "version": "1.0.0",
+  "description": "Server for GroupR",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mananwason/GroupR-Server.git"
+  },
+  "author": "mananwason",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mananwason/GroupR-Server/issues"
+  },
+  "homepage": "https://github.com/mananwason/GroupR-Server#readme",
+  "engines": {
+    "node": "5.3.0"
+  },
+  "dependencies": {
+    "async": "^2.0.0-rc.3",
+    "body-parser": "^1.15.0",
+    "express": "^4.13.4",
+    "mongoose": "^4.4.14",
+    "node-gcm": "^0.14.0"
+  }
+}
