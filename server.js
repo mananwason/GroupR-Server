@@ -22,7 +22,7 @@ db.once('open', function() {
 var UserSchema = mongoose.Schema({name:String, emailId: String, appId: String, regToken: String, adminOf:[String], subscriptions:[String]});
 var GroupSchema = mongoose.Schema({name:String, info:String, admins:[String], createdBy: String});
 var SubscriptionSchema = mongoose.Schema({studentId:String, groupId:String}); //and status whether subscribing or unscubscribing
-var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String}); //groupId, emailId, text
+var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String, postedAt:String}); //groupId, emailId, text
 var EventInfoSchema = mongoose.Schema({groupId:String, createdBy:String, title:String, info:String, responseEndTime:String, startTime:String, endTime:String});//
 var EventStatusSchema = mongoose.Schema({eventId:String, studentId:String, lastUpdatedAt:String, Status:String});
 
@@ -31,8 +31,8 @@ var User = mongoose.model('User', UserSchema);
 var Groups = mongoose.model('Groups', GroupSchema);
 var Subscriptions = mongoose.model('Subscriptions', SubscriptionSchema);
 var Updates = mongoose.model('Updates', UpdatesSchema);
-var EventInfoSchema = mongoose.model('EventsInfo', EventInfoSchema);
-var EventStatusSchema = mongoose.model('EventsStatus',EventStatusSchema);
+var EventsInfo = mongoose.model('EventsInfo', EventInfoSchema);
+var EventsStatus = mongoose.model('EventsStatus',EventStatusSchema);
 /*User.remove({}, function(err) { 
    console.log('collection removed') 
 });*/
@@ -184,8 +184,8 @@ app.post("/api/app/newGroup", function(req, res){
 	  });
 })
 
-function createUpdate(appId, emailId, groupId, info, callback){
-	var update = new Updates({groupId:groupId, postedBy:emailId, text:info});		
+function createUpdate(appId, emailId, groupId, info, postedAt, callback){
+	var update = new Updates({groupId:groupId, postedBy:emailId, text:info, postedAt:postedAt});		
 	update.save(function (err, updateObj) {
 	 	if (err) {
 	    	console.log(err);
@@ -205,11 +205,11 @@ function createUpdate(appId, emailId, groupId, info, callback){
 			var userRegTokens=new Array();
 			users.forEach(function(usr){
 				if(usr.subscriptions.indexOf(groupId)!=-1){
-					userRegTokens.push(users[i].regToken);
+					userRegTokens.push(usr.regToken);
 				}
 			});
 			var message = new gcm.Message();
-			message.addData('subType', type);
+			//message.addData('subType', type);
 			message.addNotification('title', 'New Update.');
 			message.addNotification('icon', 'ic_launcher');
 			message.addNotification('body', info);
@@ -236,10 +236,51 @@ app.post("/api/app/newUpdate", function(req, res){
 	reqData["appId"] = req.body.appId;
 	reqData["emailId"] = req.body.emailId;
 	reqData["groupId"] = req.body.groupId;
+	reqData["postedAt"] = req.body.postedAt;
 	//reqData["admins"] = req.body.admins;
 	reqData["info"] = req.body.information;
 	console.log(reqData);
-	createUpdate(reqData["appId"], reqData["emailId"], reqData["groupId"], reqData["info"], function(err, result) {
+	createUpdate(reqData["appId"], reqData["emailId"], reqData["groupId"], reqData["info"], reqData["postedAt"], function(err, result) {
+	    res.writeHead(200, {
+	      'Content-Type' : 'x-application/json'
+	    });
+	    res.end(result);
+	  });
+})
+
+function sendUpdates(appId, emailId, groupId, callback){
+	//var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String}); //groupId, emailId, text
+	Updates.find({groupId:groupId},function(err,updates){
+		if (err) {
+			console.log(err);
+			callback(err,JSON.stringify({response:"error"}));
+		} 
+		else {
+			var buildUpdates=new Array();
+			updates.forEach(function(update){
+				buildUpdates.push({
+					"by":emailId,
+					"info":update.text,
+					"groupId":groupId,
+					"postedAt":update.postedAt
+				})
+			});
+			callback(err,JSON.stringify({"response":"success", "updates":buildUpdates}));
+	  	}		    			
+	});
+}
+
+app.post("/api/app/getUpdates", function(req, res){
+	//console.log(req.body);
+	//var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String}); //groupId, emailId, text
+	var reqData = new Array();
+	reqData["appId"] = req.body.appId;
+	reqData["emailId"] = req.body.emailId;
+	reqData["groupId"] = req.body.groupId;
+	//reqData["admins"] = req.body.admins;
+	//reqData["info"] = req.body.information;
+	console.log(reqData);
+	sendUpdates(reqData["appId"], reqData["emailId"], reqData["groupId"], function(err, result) {
 	    res.writeHead(200, {
 	      'Content-Type' : 'x-application/json'
 	    });
@@ -272,7 +313,7 @@ function createEvent(appId, emailId, groupId, title, responseEndTime, startTime,
 				}
 			});
 			var message = new gcm.Message();
-			message.addData('subType', type);
+			//message.addData('subType', type);
 			message.addNotification('title', 'New Event - '+title);
 			message.addNotification('icon', 'ic_launcher');
 			message.addNotification('body', info);
@@ -314,6 +355,127 @@ app.post("/api/app/newEvent", function(req, res){
 	  });
 })
 
+function sendEvents(appId, emailId, groupId, callback){
+	//var EventInfoSchema = mongoose.Schema({groupId:String, createdBy:String, title:String, info:String, responseEndTime:String, startTime:String, endTime:String});//
+	//var EventStatusSchema = mongoose.Schema({eventId:String, studentId:String, lastUpdatedAt:String, Status:String});
+	EventsInfo.find({groupId:groupId},function(err,events){
+		if (err) {
+			console.log(err);
+			callback(err,JSON.stringify({response:"error"}));
+		} 
+		else {
+			var buildEvents=new Array();
+			var calls=[];
+			var count = 0;
+			var asyncCallback = function(data){
+				console.log(data);
+			}
+			events.forEach(function(evnt){
+			    calls.push(function(asyncCallback) {
+			    	//User.findOne({emailId: emailId}, function (err, userObj) {
+			    	EventsStatus.findOne({eventId:evnt.id, studentId:emailId}, function(err, eventStatusObj){
+			    		count++;
+			    		var s = "no";
+			    		if (err) {
+			    			console.log(err);
+			    			callback(err,JSON.stringify({response:"error"}));
+			    		} 
+			    		else if (eventStatusObj) {
+			    			s = eventStatusObj.status;
+			    		}
+			    		buildEvents.push({
+			    			"id":evnt.id,
+			    			"correspondingGroupId":evnt.groupId, 
+			    			"createdBy":evnt.createdBy,
+			    			"name":evnt.title,
+			    			"desc":evnt.info, 
+			    			"responseEndTime":evnt.responseEndTime, 
+			    			"start_time":evnt.startTime, 
+			    			"end_time":evnt.endTime,
+			    			"isGoing":s,
+			    			"photo":""
+			    		})
+			    		if(count==events.length){
+			    			asyncCallback("\nAll Events added!\n");
+			    		}
+
+			    	});
+			    })
+			});
+			async.parallel(calls, function(err, result) {
+				console.log("async calls success");
+				console.log("***********\n",result);
+			    callback(err,JSON.stringify({"response":"success", "events":buildEvents}));
+			    if (err)
+			        return console.log(err);
+			});
+	  	}		    			
+	});
+}
+
+app.post("/api/app/getEvents", function(req, res){
+	//console.log(req.body);
+	//var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String}); //groupId, emailId, text
+	var reqData = new Array();
+	reqData["appId"] = req.body.appId;
+	reqData["emailId"] = req.body.emailId;
+	reqData["groupId"] = req.body.groupId;
+	//reqData["admins"] = req.body.admins;
+	//reqData["info"] = req.body.information;
+	console.log(reqData);
+	sendEvents(reqData["appId"], reqData["emailId"], reqData["groupId"], function(err, result) {
+	    res.writeHead(200, {
+	      'Content-Type' : 'x-application/json'
+	    });
+	    res.end(result);
+	  });
+})
+
+function updateEventStatus(appId, emailId, eventId, status, lastUpdatedAt, callback){
+	//var EventStatusSchema = mongoose.Schema({eventId:String, studentId:String, lastUpdatedAt:String, Status:String});
+	//var EventStatusSchema = mongoose.Schema({eventId:String, studentId:String, lastUpdatedAt:String, Status:String});
+	EventsStatus.findOne({eventId:evnt.id, studentId:emailId}, function(err, eventStatusObj){
+		if (err) {
+			console.log(err);
+			callback(err,JSON.stringify({response:"error"}));
+		} 
+		else if (eventStatusObj) {
+			eventStatusObj.status = status;
+		}
+		else{
+			eventStatusObj = new EventsStatus({eventId:name, studentId:emailId, lastUpdatedAt:lastUpdatedAt, status: status})
+		}
+      	eventStatusObj.save(function (err) {
+	      	if (err) {
+	      		console.log(err);
+	      		callback(err,JSON.stringify({"response":"error"}));
+	      	} else {
+	      		console.log('\nEvent Status updated!\n', eventStatusObj);
+	      		callback(null,JSON.stringify({"response":"success"}));
+	      	}
+      	});
+	});
+}
+
+app.post("/api/app/updateEventStatus", function(req, res){
+	//console.log(req.body);
+	//var UpdatesSchema = mongoose.Schema({groupId:String, postedBy:String, heading:String, text:String}); //groupId, emailId, text
+	var reqData = new Array();
+	reqData["appId"] = req.body.appId;
+	reqData["emailId"] = req.body.emailId;
+	reqData["eventId"] = req.body.eventId;
+	reqData["status"] = req.body.status;
+	reqData["lastUpdatedAt"] = req.body.lastSentAt;
+	//reqData["admins"] = req.body.admins;
+	//reqData["info"] = req.body.information;
+	console.log(reqData);
+	updateEventStatus(reqData["appId"], reqData["emailId"], reqData["eventId"], reqData["status"], reqData["lastUpdatedAt"], function(err, result) {
+	    res.writeHead(200, {
+	      'Content-Type' : 'x-application/json'
+	    });
+	    res.end(result);
+	  });
+})
 
 function subscribeToGroup(appId, emailId, groupId, status, callback){
 	User.findOne({emailId: emailId}, function (err, userObj) {
@@ -322,7 +484,7 @@ function subscribeToGroup(appId, emailId, groupId, status, callback){
 			callback(err,JSON.stringify({response:"error"}));
 		} 
 		else if (userObj) {
-			if(status.localCompare("yes")==0){
+			if(status.localeCompare("yes")==0){
 				if(userObj.subscriptions.indexOf(groupId)!=-1){
 					callback(err,JSON.stringify({"response":"success"}));
 				}	
@@ -505,10 +667,7 @@ app.get('/', function (req, res) {
 
 
 var server = app.listen(8081, function () {
-
 	var host = server.address().address
 	var port = server.address().port
-
 	console.log("Example app listening at http://%s:%s", host, port)
-
 })
